@@ -10,6 +10,15 @@ from app.seed import SEED_ROWS
 
 
 class Store:
+    # 辅助表别名：不同命名习惯（单复数/中文）指向同一份数据。
+    TABLE_ALIASES = {
+        "receipts": "receipt",
+        "回执": "receipt",
+        "receipt_book": "receipt",
+        "备课待办": "todo",
+        "lesson_prep_todo": "todo",
+    }
+
     def __init__(self) -> None:
         self._tables: dict[str, list[dict[str, Any]]] = {
             name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
@@ -18,8 +27,13 @@ class Store:
     def module_names(self) -> list[str]:
         return sorted(self._tables)
 
+    def business_module_names(self) -> list[str]:
+        """对外的业务模块名（不含 receipt/todo 等运行期辅助表）。"""
+        return sorted(SEED_ROWS.keys())
+
     def rows(self, module: str) -> list[dict[str, Any]]:
-        return self._tables.setdefault(module, [])
+        canonical = self.TABLE_ALIASES.get(module, module)
+        return self._tables.setdefault(canonical, [])
 
     def find(self, module: str, entry_id: int) -> dict[str, Any] | None:
         for row in self.rows(module):
@@ -29,7 +43,7 @@ class Store:
 
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
-        for name in self.module_names():
+        for name in self.business_module_names():
             rows = self.rows(name)
             modules.append({
                 "name": name,

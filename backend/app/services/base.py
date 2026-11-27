@@ -1,6 +1,7 @@
 """模块服务基类：共享查询、登记、动作和统计骨架，业务差异留在各模块文件。"""
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from app.store import store
@@ -26,11 +27,15 @@ class BaseModuleService:
     ) -> tuple[list[dict[str, Any]], int]:
         rows = list(store.rows(self.MODULE))
         for field, expected in (filters or {}).items():
-            if field in self.LIST_FIELDS:
-                rows = [
-                    row for row in rows
-                    if expected.casefold() in str(row.get(field, "")).casefold()
-                ]
+            # 既支持 LIST_FIELDS 内字段，也支持承办组/处理人等扩展字段过滤。
+            if field not in self.LIST_FIELDS and field not in getattr(self, "EXTRA_FILTER_FIELDS", set()):
+                # 未显式登记的字段，只要行数据里出现过也允许过滤。
+                if not any(field in row for row in rows):
+                    continue
+            rows = [
+                row for row in rows
+                if str(expected).casefold() in str(row.get(field, "")).casefold()
+            ]
         if keyword and self.LIST_FIELDS:
             field = self.LIST_FIELDS[0]
             rows = [row for row in rows if keyword.casefold() in str(row.get(field, "")).casefold()]
@@ -52,14 +57,25 @@ class BaseModuleService:
             return None, missing
         rows = store.rows(self.MODULE)
         entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
+        # 行世代标记：表被 clear 后 id 会从 1 重新开始，用它区分“同 id 的新行”，
+        # 避免旧请求编号的幂等回执错误重放到新行上。
+        entry["_uid"] = uuid.uuid4().hex
         entry.update({field: values.get(field) for field in self.LIST_FIELDS})
+        # 保留各领域扩展字段（如承办组、请求编号等），但不允许登记时覆盖受管键。
+        protected = {"id", "status", "pending", "abnormal"}
+        for key, value in (values or {}).items():
+            if key in protected or key in entry:
+                continue
+            entry[key] = value
         entry["status"] = self.STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
         rows.append(entry)
         return entry, []
 
-    def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
+    def run_action(
+        self, entry_id: int, action: str, **options: Any
+    ) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(self.MODULE, entry_id)
         if entry is None:
             return None, f"{self.ENTITY} {entry_id} 不存在或已归档"

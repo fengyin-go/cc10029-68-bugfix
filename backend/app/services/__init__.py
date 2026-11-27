@@ -49,3 +49,25 @@ SERVICES: dict[str, BaseModuleService] = {
 
 def service_for(module: str) -> BaseModuleService | None:
     return SERVICES.get(module)
+
+
+# 回执与跨模块协作的常用入口，便于 ``from app.services import get_receipt``。
+from app.services.receipts import (  # noqa: E402
+    ReceiptService,
+    find_receipt,
+    get_receipt,
+    issue_receipt,
+    query_receipt,
+    receipt_service,
+)
+
+__all__ = [
+    "SERVICES",
+    "service_for",
+    "ReceiptService",
+    "receipt_service",
+    "issue_receipt",
+    "get_receipt",
+    "query_receipt",
+    "find_receipt",
+]
